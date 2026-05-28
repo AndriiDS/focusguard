@@ -1,5 +1,15 @@
 # FocusGuard
 
+The point is friction you set up in advance. You put the authenticator code on a
+phone you deliberately don't have easy daily access to: a spare handset in a
+drawer, an old phone left at the office, a friend's phone. You scan a QR once to
+put it there. After that, changing a daily limit or lifting a block needs the
+current 6-digit code from that device, so the moment you want to bend your own
+rules you first have to physically go and get it. That small errand is usually
+enough to stop you, and that inconvenience is the whole feature. It's a
+commitment device, not a vault: the code is simple, open, and free for anyone to
+read, run, and change however they like.
+
 A personal website blocker for macOS that works across every browser (including
 DuckDuckGo and its `duck://player`). A per-user **LaunchAgent** reads the active
 tab via the Accessibility API inside your GUI session and writes it to
@@ -16,7 +26,7 @@ Out of the box, with the default config:
   `youtube.com` is DNS-blocked via `/etc/hosts`; DuckDuckGo's `duck://player`
   embed streams from a wildcard CDN that hosts can't touch, so when a blocked
   YouTube/Duck Player tab is frontmost the browser is force-quit instead.
-- **Spotify**: blocked between **22:30 and 08:00** every night — both the web
+- **Spotify**: blocked between **22:30 and 08:00** every night: both the web
   player (via `/etc/hosts`) and the desktop app (force-quit each tick). No time
   counting, just the night window.
 - Lifting or weakening any block needs `sudo` + a 2FA code (see
@@ -38,7 +48,7 @@ Out of the box, with the default config:
    ```
 
    It'll prompt for your sudo password, then offer to set up the 2FA
-   authenticator code (recommended — it's the gate for unlock/uninstall/limit
+   authenticator code (recommended: it's the gate for unlock/uninstall/limit
    changes). The whole point is friction.
 
 4. **One-time Accessibility grant.** The installer triggers the prompt; if you
@@ -107,7 +117,7 @@ After editing, changes take effect on the next tick (within ~60 seconds).
 ## Second factor (2FA)
 
 The two factors are **sudo** and a **TOTP code** (Google Authenticator / Authy
-on a spare phone) — there is no separate FocusGuard password. Anything that
+on a spare phone): there is no separate FocusGuard password. Anything that
 lifts or weakens a block flows like this:
 
 ```mermaid
@@ -137,7 +147,7 @@ Authy) on the spare phone, choose **Enter a setup key** and type the key in as
 all require a valid 6-digit code.
 
 The seed lives in a root-only file (`/usr/local/etc/focusguard/totp.secret`), so
-it is friction, not a vault — a `sudo` user can read or delete it. That deletion
+it is friction, not a vault: a `sudo` user can read or delete it. That deletion
 is also your **break-glass if you lose the phone** (re-seeding *while* 2FA is
 configured requires a current code, so it's not a casual bypass):
 
@@ -152,13 +162,13 @@ Be honest with yourself about these:
 
 - **Foreground only.** Usage counts (and the browser-quit enforcement fires)
   only when the window showing the site is frontmost. A video playing in a
-  background window or picture-in-picture won't count — the active tab is what's
+  background window or picture-in-picture won't count: the active tab is what's
   read each tick.
 - **Usage is sampled every 60 seconds.** A minute counts if the active tab
   matches during the tick, so granularity is one minute.
 - **No instant mid-stream cut.** `/etc/hosts` blocks page loads/reloads, and the
   browser-quit only fires on the next tick (≤60s) while a blocked tab is
-  frontmost — so a playing video can run for up to a minute before the browser
+  frontmost, so a playing video can run for up to a minute before the browser
   is quit. Quitting also closes your other tabs in that browser. True per-flow
   mid-stream cutoff would need a signed content filter (not used).
 - **A determined adult with sudo** can edit `/etc/hosts` or revoke the
@@ -174,7 +184,7 @@ sudo ./uninstall.sh
 If 2FA is configured, it first asks for a current authenticator code and aborts
 on a wrong one. Then it restores `/etc/hosts` from backup, removes the daemon,
 the per-user agent, and the `fg-axurl` helper, and deletes all FocusGuard files.
-Clean. (A `sudo` user can still tear it down manually, bypassing this prompt —
+Clean. (A `sudo` user can still tear it down manually, bypassing this prompt:
 see the friction-not-vault note above.)
 
 ## Where everything lives
