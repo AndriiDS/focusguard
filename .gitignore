@@ -1,0 +1,12 @@
+# compiled Accessibility helper (built by install.sh)
+fg-axurl
+
+# python
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
+
+# editor
+.cursor/
