@@ -15,6 +15,7 @@ is only honoured inside the GUI login session.
 
 import argparse
 import base64
+import copy
 import datetime
 import getpass
 import hashlib
@@ -71,6 +72,7 @@ DEFAULT_CONFIG = {
 
 TICK_SECONDS = 60
 ACTIVE_MAX_AGE = 120  # ignore active.txt if the agent stopped refreshing it
+STATE_DEFAULT = {"date": "", "usage": {}, "unlock_until": 0}
 
 # ---------- utilities ----------
 
@@ -82,33 +84,20 @@ def setup_logging():
         format="%(asctime)s [%(levelname)s] %(message)s",
     )
 
-def load_config():
-    if not CONFIG_PATH.exists():
-        return json.loads(json.dumps(DEFAULT_CONFIG))  # deep copy
-    with open(CONFIG_PATH) as f:
-        return json.load(f)
+def load_json(path, default):
+    return copy.deepcopy(default) if not path.exists() else json.loads(path.read_text())
 
-def save_config(cfg):
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    tmp = CONFIG_PATH.with_suffix(".json.tmp")
-    with open(tmp, "w") as f:
-        json.dump(cfg, f, indent=2)
-    os.chmod(tmp, 0o644)
-    os.replace(tmp, CONFIG_PATH)
+def save_json(path, data, mode=0o644):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(data, indent=2))
+    tmp.chmod(mode)
+    tmp.replace(path)
 
-def load_state():
-    if not STATE_PATH.exists():
-        return {"date": "", "usage": {}, "unlock_until": 0}
-    with open(STATE_PATH) as f:
-        return json.load(f)
-
-def save_state(state):
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
-    tmp = STATE_PATH.with_suffix(".json.tmp")
-    with open(tmp, "w") as f:
-        json.dump(state, f, indent=2)
-    os.chmod(tmp, 0o644)
-    os.replace(tmp, STATE_PATH)
+def load_config():  return load_json(CONFIG_PATH, DEFAULT_CONFIG)
+def save_config(c): save_json(CONFIG_PATH, c)
+def load_state():   return load_json(STATE_PATH, STATE_DEFAULT)
+def save_state(s):  save_json(STATE_PATH, s)
 
 # ---------- TOTP second factor (RFC 6238) ----------
 
@@ -151,15 +140,12 @@ def in_night_window(night, now: datetime.datetime) -> bool:
 # The root daemon cannot read AX itself, so it reads that file here.
 
 def read_active_url():
-    """Return (app, url, title) of the frontmost window from the agent's file."""
     if not ACTIVE_PATH.exists():
         return "", "", ""
     if time.time() - ACTIVE_PATH.stat().st_mtime > ACTIVE_MAX_AGE:
         return "", "", ""
-    parts = ACTIVE_PATH.read_text().strip().split("||")
-    while len(parts) < 3:
-        parts.append("")
-    return parts[0], parts[1], parts[2]
+    app, url, title = (ACTIVE_PATH.read_text().strip().split("||") + ["", "", ""])[:3]
+    return app, url, title
 
 def detect_active_site(config):
     """Return (site_key, frontmost_app) for the monitored site in front, else (None, app)."""
@@ -172,24 +158,18 @@ def detect_active_site(config):
 
 # ---------- /etc/hosts management ----------
 
-def read_hosts() -> str:
-    with open(HOSTS_PATH, "r") as f:
-        return f.read()
-
 def kill_app(name):
-    """Quit a native app by exact process name (used to block desktop apps)."""
     if subprocess.run(["pkill", "-ix", name]).returncode == 0:
         logging.info(f"Killed app: {name}")
 
 def write_hosts(content: str):
-    with open(HOSTS_PATH, "w") as f:
-        f.write(content)
+    HOSTS_PATH.write_text(content)
     subprocess.run(["dscacheutil", "-flushcache"], check=False)
     subprocess.run(["killall", "-HUP", "mDNSResponder"], check=False)
 
 def update_hosts(blocked_domains) -> bool:
     """Update the managed block in /etc/hosts. Returns True if anything changed."""
-    current = read_hosts()
+    current = HOSTS_PATH.read_text()
 
     # Strip any existing managed block
     if MARKER_START in current and MARKER_END in current:
@@ -218,8 +198,7 @@ def update_hosts(blocked_domains) -> bool:
         return False
 
     if not HOSTS_BACKUP.exists():
-        with open(HOSTS_BACKUP, "w") as f:
-            f.write(current)
+        HOSTS_BACKUP.write_text(current)
 
     write_hosts(new_content)
     return True
@@ -283,11 +262,8 @@ def cmd_tick(_args):
     save_state(state)
 
 def _fmt_mins(seconds: int) -> str:
-    m, s = divmod(int(seconds), 60)
-    h, m = divmod(m, 60)
-    if h:
-        return f"{h}h {m}m"
-    return f"{m}m"
+    h, m = divmod(int(seconds) // 60, 60)
+    return f"{h}h {m}m" if h else f"{m}m"
 
 def cmd_status(_args):
     config = load_config()
@@ -360,7 +336,7 @@ def cmd_init_config(_args):
     if CONFIG_PATH.exists():
         print(f"Config already exists at {CONFIG_PATH}")
         return
-    save_config(json.loads(json.dumps(DEFAULT_CONFIG)))
+    save_config(copy.deepcopy(DEFAULT_CONFIG))
     print(f"Wrote default config to {CONFIG_PATH}")
 
 def cmd_set_limit(args):
@@ -406,6 +382,19 @@ def cmd_verify_2fa(args):
     code = args.code if args.code else getpass.getpass("Authenticator code: ")
     sys.exit(0 if verify_totp(secret, code) else 1)
 
+def cmd_selftest(_args):
+    sec = base64.b32encode(b"12345678901234567890").decode()  # RFC 6238 vector
+    assert totp_now(sec, t=59, digits=8) == "94287082"
+    assert verify_totp(sec, totp_now(sec))
+    assert not verify_totp(sec, "000000")
+    at = lambda h, m: datetime.datetime(2026, 1, 1, h, m)
+    wrap = {"start": "22:30", "end": "08:00"}
+    assert in_night_window(wrap, at(23, 0)) and in_night_window(wrap, at(2, 0))
+    assert not in_night_window(wrap, at(8, 0)) and not in_night_window(wrap, at(22, 29))
+    day = {"start": "09:00", "end": "17:00"}
+    assert in_night_window(day, at(12, 0)) and not in_night_window(day, at(8, 0))
+    print("selftest ok")
+
 # ---------- main ----------
 
 def hhmm(s: str) -> str:
@@ -425,6 +414,7 @@ def main():
     sub.add_parser("status",      help="Show usage and current block state")
     sub.add_parser("lock",        help="Re-lock immediately (cancel any unlock)")
     sub.add_parser("init-config", help="Write the default config if missing")
+    sub.add_parser("selftest",    help="Run built-in logic checks (TOTP, night window)")
     sub.add_parser("setup-2fa",   help="Enable/re-seed the authenticator second factor")
     u = sub.add_parser("unlock",  help="Temporarily unlock all blocks")
     u.add_argument("minutes", type=int, help="Minutes to unlock for")

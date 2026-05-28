@@ -1,17 +1,11 @@
 # FocusGuard
 
-A personal website blocker for macOS that actually works across every browser
-— including DuckDuckGo browser (and its `duck://player`), Arc, and anything
-else without a Cold Turkey extension. Usage is metered by reading the active
-browser tab via the macOS Accessibility API (which can see `duck://player` and
-the `youtube-nocookie` embeds it uses), and blocking happens at the OS level via
-`/etc/hosts`, so the browser can't load the page.
-
-A per-user **LaunchAgent** runs the tab reader inside your GUI login session
-(the only place the Accessibility grant is honoured) and writes the active tab
-to `active.txt`; the root **LaunchDaemon** reads that file to meter usage and
-edit `/etc/hosts`. Two jobs, because reading the screen needs your session and
-editing `/etc/hosts` needs root.
+A personal website blocker for macOS that works across every browser (including
+DuckDuckGo and its `duck://player`). A per-user **LaunchAgent** reads the active
+tab via the Accessibility API inside your GUI session and writes it to
+`active.txt`; the root **LaunchDaemon** reads that to meter usage and block at
+the OS level via `/etc/hosts`. Two jobs, because reading the screen needs your
+session and editing `/etc/hosts` needs root.
 
 ## What it does
 
@@ -25,9 +19,8 @@ Out of the box, with the default config:
 - **Spotify**: blocked between **22:30 and 08:00** every night — both the web
   player (via `/etc/hosts`) and the desktop app (force-quit each tick). No time
   counting, just the night window.
-- Changing or lifting any of this needs `sudo` (your macOS admin password) plus
-  a 2FA authenticator code — for the moments when you *do* legitimately need to
-  get to something.
+- Lifting or weakening any block needs `sudo` + a 2FA code (see
+  [Second factor](#second-factor-2fa)).
 
 ## Install
 
@@ -48,11 +41,10 @@ Out of the box, with the default config:
    authenticator code (recommended — it's the gate for unlock/uninstall/limit
    changes). The whole point is friction.
 
-4. **One-time Accessibility grant.** Usage tracking reads your active browser
-   tab via the Accessibility API. The installer triggers the prompt; if you
-   miss it, go to `System Settings → Privacy & Security → Accessibility`,
-   click `+`, add `/usr/local/bin/fg-axurl`, and enable it. Without this the
-   daily-limit tracking can't see YouTube; the night-block works regardless.
+4. **One-time Accessibility grant.** The installer triggers the prompt; if you
+   miss it, go to `System Settings → Privacy & Security → Accessibility` and
+   enable `/usr/local/bin/fg-axurl` (add with `+`). Without it, usage tracking
+   can't see YouTube; the night-block still works.
 
 That's it. The daemon runs every minute, edits `/etc/hosts` based on schedule
 + usage, and survives reboots.
@@ -60,22 +52,17 @@ That's it. The daemon runs every minute, edits `/etc/hosts` based on schedule
 ## Daily use
 
 ```bash
-focusguard status                  # see how much YouTube time you have left
-sudo focusguard unlock 30          # unlock for 30 min (needs 2FA code)
+focusguard status                  # usage and what's blocked (no sudo)
+focusguard selftest                # built-in logic checks (no sudo)
+sudo focusguard unlock 30          # unlock for 30 min
 sudo focusguard lock               # re-lock right now
 sudo focusguard setup-2fa          # enable/re-seed the authenticator code
-sudo focusguard set-limit youtube 90   # change a daily limit (needs 2FA code)
-sudo focusguard set-night 23:00 07:00  # change the night window (needs 2FA code)
+sudo focusguard set-limit youtube 90   # change a daily limit
+sudo focusguard set-night 23:00 07:00  # change the night window
 ```
 
-The two factors are **sudo** (your macOS admin password) and the **2FA code**
-from the spare phone. `status` needs neither; everything that lifts or weakens a
-block (`unlock`, `set-limit`, `set-night`, `uninstall`) needs both.
-
-Changing a limit or the night window is the part you're most tempted to weaken
-in a moment of weakness, so `set-limit` and `set-night` require the 2FA code.
-(Honest caveat: a `sudo` user can still bypass this by hand-editing
-`config.json` below — the gate only holds if you use the commands.)
+`status` and `selftest` need nothing; everything that lifts or weakens a block
+(`unlock`, `set-limit`, `set-night`, `uninstall`) needs `sudo` + the 2FA code.
 
 ## Customize sites & schedule
 
@@ -119,10 +106,9 @@ After editing, changes take effect on the next tick (within ~60 seconds).
 
 ## Second factor (2FA)
 
-The two factors are **sudo** (your macOS admin password, which root commands
-need anyway) and a **TOTP authenticator code** (Google Authenticator / Authy on
-a spare phone). There is no separate FocusGuard password — sudo + the code are
-the gate. Anything that lifts or weakens a block flows like this:
+The two factors are **sudo** and a **TOTP code** (Google Authenticator / Authy
+on a spare phone) — there is no separate FocusGuard password. Anything that
+lifts or weakens a block flows like this:
 
 ```mermaid
 flowchart TD
@@ -150,17 +136,15 @@ Authy) on the spare phone, choose **Enter a setup key** and type the key in as
 "FocusGuard". After that, `unlock`, `set-limit`, `set-night`, and `uninstall.sh`
 all require a valid 6-digit code.
 
-The TOTP seed is stored in a root-only file (`/usr/local/etc/focusguard/totp.secret`),
-so it is friction, not an unbreakable vault: a `sudo` user can still read or
-delete the seed. That deletion is also your **break-glass if you lose the phone**:
+The seed lives in a root-only file (`/usr/local/etc/focusguard/totp.secret`), so
+it is friction, not a vault — a `sudo` user can read or delete it. That deletion
+is also your **break-glass if you lose the phone** (re-seeding *while* 2FA is
+configured requires a current code, so it's not a casual bypass):
 
 ```bash
 sudo rm /usr/local/etc/focusguard/totp.secret   # disables 2FA
 sudo focusguard setup-2fa                        # re-seed with a new phone
 ```
-
-Re-seeding while 2FA is still configured requires a current code, so resetting
-is a deliberate root file operation, not a casual one-command bypass.
 
 ## What it can't do
 
