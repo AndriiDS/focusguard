@@ -1,21 +1,18 @@
 # FocusGuard
 
 The point is friction you set up in advance. You put the authenticator code on a
-phone you deliberately don't have easy daily access to: a spare handset in a
-drawer, an old phone left at the office, a friend's phone. You scan a QR once to
-put it there. After that, changing a daily limit or lifting a block needs the
-current 6-digit code from that device, so the moment you want to bend your own
-rules you first have to physically go and get it. That small errand is usually
-enough to stop you, and that inconvenience is the whole feature. It's a
-commitment device, not a vault: the code is simple, open, and free for anyone to
-read, run, and change however they like.
+phone you deliberately keep out of easy reach: a spare handset in a drawer, an
+old phone at the office, a friend's phone. You scan a QR code onto it once. After
+that, changing a daily limit or lifting a block needs the current 6-digit code
+from that device, so the moment you want to bend your own rules you have to
+physically go and get it. That small errand is usually enough to stop you. The
+project itself is open and free: read it, run it, change it however you like.
 
-A personal website blocker for macOS that works across every browser (including
-DuckDuckGo and its `duck://player`). A per-user **LaunchAgent** reads the active
-tab via the Accessibility API inside your GUI session and writes it to
-`active.txt`; the root **LaunchDaemon** reads that to meter usage and block at
-the OS level via `/etc/hosts`. Two jobs, because reading the screen needs your
-session and editing `/etc/hosts` needs root.
+A website/app blocker for macOS that works across every browser (including
+DuckDuckGo's `duck://player`). A per-user LaunchAgent reads the active tab via
+the Accessibility API; the root LaunchDaemon blocks via `/etc/hosts`. Two jobs,
+because reading the screen needs your session and editing `/etc/hosts` needs
+root.
 
 ## What it does
 
@@ -101,18 +98,13 @@ The two everyday knobs have dedicated, 2FA-gated commands (see above):
 }
 ```
 
-- Add more sites by adding more keys under `"sites"`.
-- `domains` are blocked in `/etc/hosts` (page loads). `url_patterns` are
-  substrings matched against the active tab's URL and title to meter usage.
-- `apps` is a list of native macOS app process names (e.g. `"Spotify"`) that
-  are force-quit each tick while the site is blocked. Relaunching just gets
-  quit again within ~60s. Omit it for web-only sites.
-- `daily_limit_minutes: 0` means no per-day limit.
-- `night_block: false` means the night window doesn't apply to that site.
-- The night window can wrap midnight (start later than end) or stay within
-  one day (start earlier than end).
+- `domains`: blocked in `/etc/hosts` (page loads).
+- `url_patterns`: substrings matched against the active tab's URL/title to meter usage.
+- `apps`: native macOS process names force-quit while the site is blocked (omit for web-only).
+- `daily_limit_minutes: 0` means no limit; `night_block: false` exempts the site.
+- The night window can wrap midnight (start later than end).
 
-After editing, changes take effect on the next tick (within ~60 seconds).
+Changes take effect on the next tick (~60s).
 
 ## Second factor (2FA)
 
@@ -135,21 +127,11 @@ flowchart TD
     code -->|yes| tear
 ```
 
-Enable it (the installer also offers this):
-
-```bash
-sudo focusguard setup-2fa
-```
-
-It prints a base32 key and an `otpauth://` URI. In Google Authenticator (or
-Authy) on the spare phone, choose **Enter a setup key** and type the key in as
-"FocusGuard". After that, `unlock`, `set-limit`, `set-night`, and `uninstall.sh`
-all require a valid 6-digit code.
-
-The seed lives in a root-only file (`/usr/local/etc/focusguard/totp.secret`), so
-it is friction, not a vault: a `sudo` user can read or delete it. That deletion
-is also your **break-glass if you lose the phone** (re-seeding *while* 2FA is
-configured requires a current code, so it's not a casual bypass):
+`sudo focusguard setup-2fa` prints a key + QR; scan it into the authenticator on
+the spare phone. The seed lives in a root-only file
+(`/usr/local/etc/focusguard/totp.secret`), so it's friction, not a vault: a
+`sudo` user can read or delete it. Deleting it is also your **break-glass if you
+lose the phone** (re-seeding while 2FA is configured needs a current code):
 
 ```bash
 sudo rm /usr/local/etc/focusguard/totp.secret   # disables 2FA
@@ -160,20 +142,13 @@ sudo focusguard setup-2fa                        # re-seed with a new phone
 
 Be honest with yourself about these:
 
-- **Foreground only.** Usage counts (and the browser-quit enforcement fires)
-  only when the window showing the site is frontmost. A video playing in a
-  background window or picture-in-picture won't count: the active tab is what's
-  read each tick.
-- **Usage is sampled every 60 seconds.** A minute counts if the active tab
-  matches during the tick, so granularity is one minute.
-- **No instant mid-stream cut.** `/etc/hosts` blocks page loads/reloads, and the
-  browser-quit only fires on the next tick (≤60s) while a blocked tab is
-  frontmost, so a playing video can run for up to a minute before the browser
-  is quit. Quitting also closes your other tabs in that browser. True per-flow
-  mid-stream cutoff would need a signed content filter (not used).
-- **A determined adult with sudo** can edit `/etc/hosts` or revoke the
-  Accessibility grant and undo any block. The friction is the point, not
-  military-grade enforcement.
+- **Foreground only.** Counting and the browser-quit fire only when the site's
+  window is frontmost; background or picture-in-picture playback isn't seen.
+- **Sampled every 60s.** Granularity is one minute, and a blocked video can play
+  up to a minute before the next tick quits the browser (which closes its other
+  tabs too). Instant per-flow cutoff would need a signed content filter (not used).
+- **Anyone with sudo can undo it** by editing `/etc/hosts` or revoking the grant.
+  This is friction, not military-grade enforcement.
 
 ## Uninstall
 
@@ -181,11 +156,9 @@ Be honest with yourself about these:
 sudo ./uninstall.sh
 ```
 
-If 2FA is configured, it first asks for a current authenticator code and aborts
-on a wrong one. Then it restores `/etc/hosts` from backup, removes the daemon,
-the per-user agent, and the `fg-axurl` helper, and deletes all FocusGuard files.
-Clean. (A `sudo` user can still tear it down manually, bypassing this prompt:
-see the friction-not-vault note above.)
+Asks for a current 2FA code (if configured), then restores `/etc/hosts` and
+removes the daemon, agent, helper, and all FocusGuard files. A `sudo` user can
+still tear it down by hand, bypassing the prompt.
 
 ## Where everything lives
 
